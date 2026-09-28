@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Percepção Geométrica</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:Arial,sans-serif;background:linear-gradient(135deg,#e9f8ff,#ffffff);color:#17364b}
+main{max-width:940px;margin:auto;padding:16px}
+header{text-align:center}
+h1{margin:4px 0;font-size:clamp(28px,6vw,48px)}
+header p{margin:4px 0 14px;color:#5b7485}
+.info{display:flex;justify-content:center;gap:10px;flex-wrap:wrap}
+.pill{background:#fff;border:2px solid #cfe4ef;border-radius:14px;padding:9px 16px;font-weight:900}
+#turn,#message{text-align:center;font-weight:900;min-height:28px;margin:9px}
+#board{width:min(95vw,720px);margin:10px auto;display:grid;grid-template-columns:repeat(8,1fr);gap:5px;background:#b8d8e8;padding:7px;border-radius:17px;box-shadow:0 10px 28px rgba(40,90,120,.16)}
+.cell{position:relative;aspect-ratio:1;background:#fff;border:1px solid #d5e6ee;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;overflow:hidden}
+.cell:hover{background:#f1fbff}
+.cell.selected{outline:4px solid #1677ff;outline-offset:-4px}
+.cell.move{box-shadow:inset 0 0 0 4px rgba(30,170,100,.55)}
+.letter{position:absolute;left:5px;top:3px;color:#17364b;font-weight:900;font-size:clamp(10px,1.8vw,14px);z-index:10}
+.shape{width:62%;height:62%;display:block}
+.token{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
+.token span{width:31%;aspect-ratio:1;border-radius:50%;border:3px solid #fff;box-shadow:0 2px 7px rgba(0,0,0,.35)}
+.token.blue span{background:#1479ff}
+.token.red span{background:#ed3e50}
+button{display:block;margin:12px auto;border:0;border-radius:12px;background:#126de5;color:#fff;padding:12px 24px;font-size:16px;font-weight:900;cursor:pointer}
+button:hover{background:#0d5fc9}
+.win{color:#087b55;font-size:22px}
+@media(max-width:520px){#board{gap:3px;padding:4px}.cell{border-radius:5px}.letter{left:3px;top:2px}}
+</style>
+</head>
+<body>
+<main>
+<header>
+<h1>Percepção Geométrica</h1>
+<p>Encontre as quatro casas da mesma forma geométrica.</p>
+</header>
+
+<div class="info">
+<div class="pill" id="playerScore">Você: 0/4</div>
+<div class="pill" id="robotScore">Robô: 0/4</div>
+</div>
+
+<div id="turn"></div>
+<div id="board"></div>
+<div id="message"></div>
+<button id="newGame">Novo jogo</button>
+</main>
+
+<script>
+"use strict";
+
+/* ============================================================
+   IDENTIDADE FIXA DAS 16 FORMAS
+   Cada forma tem UMA cor e UMA letra.
+   As quatro cópias da forma usam exatamente a mesma identidade.
+   ============================================================ */
+const SHAPES = [
+  "Quadrado","Círculo","Triângulo","Losango",
+  "Pentágono","Hexágono","Octógono","Estrela",
+  "Coração","Oval","Retângulo","Semicírculo",
+  "Trapézio","Paralelogramo","Cruz","Seta"
+];
+
+const IDENTITY = [
+  {color:"#1677ff", letter:"A"},
+  {color:"#ef4444", letter:"B"},
+  {color:"#16a34a", letter:"C"},
+  {color:"#f59e0b", letter:"D"},
+  {color:"#8b5cf6", letter:"E"},
+  {color:"#0891b2", letter:"F"},
+  {color:"#db2777", letter:"G"},
+  {color:"#f97316", letter:"H"},
+  {color:"#65a30d", letter:"I"},
+  {color:"#9333ea", letter:"J"},
+  {color:"#0ea5e9", letter:"K"},
+  {color:"#dc2626", letter:"L"},
+  {color:"#14b8a6", letter:"M"},
+  {color:"#a16207", letter:"N"},
+  {color:"#e11d48", letter:"O"},
+  {color:"#4f46e5", letter:"P"}
+];
+
+/* As formas são desenhadas diretamente em SVG inline.
+   O fill é colocado no próprio elemento, portanto a cor nunca
+   depende de herança CSS. */
+function makeSVG(type, color){
+  const common = 'fill="' + color + '" stroke="#17364b" stroke-width="4" stroke-linejoin="round"';
+  const s = [
+    '<rect x="15" y="15" width="70" height="70" rx="3" '+common+'/>',
+    '<circle cx="50" cy="50" r="36" '+common+'/>',
+    '<polygon points="50,9 91,89 9,89" '+common+'/>',
+    '<polygon points="50,8 92,50 50,92 8,50" '+common+'/>',
+    '<polygon points="50,8 90,38 74,90 26,90 10,38" '+common+'/>',
+    '<polygon points="28,9 72,9 92,50 72,91 28,91 8,50" '+common+'/>',
+    '<polygon points="29,8 71,8 92,29 92,71 71,92 29,92 8,71 8,29" '+common+'/>',
+    '<polygon points="50,7 60,36 91,38 67,56 76,88 50,69 24,88 33,56 9,38 40,36" '+common+'/>',
+    '<path d="M50 90C43 81 13 63 13 38c0-14 10-24 23-24 7 0 11 3 14 9 3-6 7-9 14-9 13 0 23 10 23 24 0 25-30 43-37 52Z" '+common+'/>',
+    '<ellipse cx="50" cy="50" rx="41" ry="28" '+common+'/>',
+    '<rect x="9" y="27" width="82" height="46" rx="3" '+common+'/>',
+    '<path d="M10 50A40 40 0 0 1 90 50Z" '+common+'/>',
+    '<polygon points="25,17 88,17 72,83 12,83" '+common+'/>',
+    '<polygon points="25,18 89,34 75,82 11,66" '+common+'/>',
+    '<path d="M37 9h26v28h28v26H63v28H37V63H9V37h28Z" '+common+'/>',
+    '<polygon points="10,38 56,38 56,14 91,50 56,86 56,62 10,62" '+common+'/>'
+  ];
+  return '<svg class="shape" viewBox="0 0 100 100" aria-label="'+SHAPES[type]+'">'+s[type]+'</svg>';
+}
+
+let cells = [];
+let player = [];
+let robot = [];
+let phase = "place";
+let turn = "player";
+let selected = null;
+let gameOver = false;
+
+function shuffle(array){
+  for(let i=array.length-1;i>0;i--){
+    const j=Math.floor(Math.random()*(i+1));
+    [array[i],array[j]]=[array[j],array[i]];
+  }
+  return array;
+}
+
+function newGame(){
+  /* EXATAMENTE 4 cópias de cada uma das 16 formas = 64 casas. */
+  const deck=[];
+  for(let type=0;type<16;type++){
+    for(let copy=0;copy<4;copy++){
+      deck.push({
+        type:type,
+        color:IDENTITY[type].color,
+        letter:IDENTITY[type].letter
+      });
+    }
+  }
+
+  /* Distribuição mais espalhada: evita colocar cópias da mesma forma muito próximas. */
+  let bestDeck=null, bestScore=-Infinity;
+  for(let attempt=0;attempt<250;attempt++){
+    const candidate=shuffle(deck.slice());
+    const positions=Array.from({length:16},()=>[]);
+    candidate.forEach((card,i)=>positions[card.type].push(i));
+    let score=0;
+    for(const pos of positions){
+      for(let a=0;a<pos.length;a++){
+        for(let b=a+1;b<pos.length;b++){
+          const r1=Math.floor(pos[a]/8), c1=pos[a]%8;
+          const r2=Math.floor(pos[b]/8), c2=pos[b]%8;
+          score += Math.abs(r1-r2)+Math.abs(c1-c2);
+        }
+      }
+    }
+    if(score>bestScore){bestScore=score; bestDeck=candidate;}
+  }
+  cells=bestDeck.map((card,index)=>({...card,index}));
+
+  player=[];
+  robot=[];
+  phase="place";
+  turn="player";
+  selected=null;
+  gameOver=false;
+  setMessage("");
+  render();
+}
+
+function occupied(index){
+  return player.includes(index)||robot.includes(index);
+}
+
+function adjacent(a,b){
+  const ar=Math.floor(a/8), ac=a%8;
+  const br=Math.floor(b/8), bc=b%8;
+  return Math.max(Math.abs(ar-br),Math.abs(ac-bc))===1;
+}
+
+function bestScore(pieces){
+  const counts=Array(16).fill(0);
+  for(const index of pieces) counts[cells[index].type]++;
+  return Math.max(...counts);
+}
+
+function hasWon(pieces){
+  return bestScore(pieces)===4;
+}
+
+function render(){
+  const board=document.getElementById("board");
+  board.innerHTML="";
+
+  cells.forEach(cell=>{
+    const el=document.createElement("div");
+    el.className="cell";
+
+    if(selected===cell.index) el.classList.add("selected");
+
+    if(selected!==null &&
+       phase==="move" &&
+       turn==="player" &&
+       !occupied(cell.index) &&
+       adjacent(selected,cell.index)){
+      el.classList.add("move");
+    }
+
+    el.innerHTML=
+      '<span class="letter">'+cell.letter+'</span>'+
+      makeSVG(cell.type,cell.color);
+
+    if(player.includes(cell.index)){
+      el.innerHTML+='<div class="token blue"><span></span></div>';
+    }
+    if(robot.includes(cell.index)){
+      el.innerHTML+='<div class="token red"><span></span></div>';
+    }
+
+    el.addEventListener("click",()=>handleCell(cell.index));
+    board.appendChild(el);
+  });
+
+  document.getElementById("playerScore").textContent=
+    "Você: "+bestScore(player)+"/4";
+  document.getElementById("robotScore").textContent=
+    "Robô: "+bestScore(robot)+"/4";
+
+  if(gameOver){
+    document.getElementById("turn").textContent="Jogo encerrado";
+  }else if(phase==="place"){
+    document.getElementById("turn").textContent=
+      "Colocação — "+(turn==="player"?"sua vez":"robô pensando...");
+  }else{
+    document.getElementById("turn").textContent=
+      "Movimento — "+(turn==="player"?"sua vez":"robô pensando...");
+  }
+}
+
+function handleCell(index){
+  if(gameOver || turn!=="player") return;
+
+  if(phase==="place"){
+    if(occupied(index)) return;
+
+    player.push(index);
+
+    if(hasWon(player)){
+      finish("Você venceu! Encontrou quatro formas iguais.");
+      return;
+    }
+
+    if(player.length===4 && robot.length===4){
+      phase="move";
+      turn="player";
+      render();
+      return;
+    }
+
+    turn="robot";
+    render();
+    setTimeout(robotPlace,450);
+    return;
+  }
+
+  /* Fase de movimento */
+  if(selected===null){
+    if(player.includes(index)) selected=index;
+    render();
+    return;
+  }
+
+  if(player.includes(index)){
+    selected=index;
+    render();
+    return;
+  }
+
+  if(!occupied(index) && adjacent(selected,index)){
+    player[player.indexOf(selected)]=index;
+    selected=null;
+
+    if(hasWon(player)){
+      finish("Você venceu! Encontrou quatro formas iguais.");
+      return;
+    }
+
+    turn="robot";
+    render();
+    setTimeout(robotMove,550);
+  }
+}
+
+function robotPlace(){
+  if(gameOver) return;
+
+  const free=cells.map(c=>c.index).filter(i=>!occupied(i));
+  let best=free[Math.floor(Math.random()*free.length)];
+  let value=-Infinity;
+
+  for(const index of free){
+    const robotScore=bestScore([...robot,index]);
+    const playerScore=bestScore(player);
+    const blockBonus=player.length ? Math.max(0, playerScore - bestScore(player.filter(x=>cells[x].type!==cells[index].type))) : 0;
+    const future=robotScore*10 + blockBonus*4 + Math.random()*0.35;
+    if(future>value){
+      value=future;
+      best=index;
+    }
+  }
+
+  robot.push(best);
+
+  if(hasWon(robot)){
+    finish("O robô venceu! Encontrou quatro formas iguais.");
+    return;
+  }
+
+  if(player.length===4 && robot.length===4) phase="move";
+
+  turn="player";
+  render();
+}
+
+function robotMove(){
+  if(gameOver) return;
+
+  const moves=[];
+
+  for(const from of robot){
+    for(let to=0;to<64;to++){
+      if(!occupied(to) && adjacent(from,to)){
+        moves.push([from,to]);
+      }
+    }
+  }
+
+  if(moves.length===0){
+    turn="player";
+    render();
+    return;
+  }
+
+  /* Primeiro: tenta ganhar. */
+  let chosen=moves.find(([from,to])=>
+    hasWon(robot.map(x=>x===from?to:x))
+  );
+
+  /* Segundo: procura a jogada que mais aproxima o robô da vitória. */
+  if(!chosen){
+    let best=-1;
+    for(const move of moves){
+      const score=bestScore(robot.map(x=>x===move[0]?move[1]:x));
+      if(score>best){best=score; chosen=move;}
+    }
+  }
+
+  /* Terceiro: tenta bloquear uma vitória imediata do jogador. */
+  if(!chosen){
+    outer:
+    for(const move of moves){
+      for(const fromPlayer of player){
+        for(let target=0;target<64;target++){
+          if(!occupied(target) &&
+             adjacent(fromPlayer,target) &&
+             hasWon(player.map(x=>x===fromPlayer?target:x))){
+            chosen=move;
+            break outer;
+          }
+        }
+      }
+    }
+  }
+
+  /* Terceiro: melhora a própria combinação; empates são aleatórios. */
+  if(!chosen){
+    let best=-1;
+    const candidates=[];
+    for(const move of moves){
+      const [from,to]=move;
+      const value=bestScore(robot.map(x=>x===from?to:x));
+      if(value>best){
+        best=value;
+        candidates.length=0;
+        candidates.push(move);
+      }else if(value===best){
+        candidates.push(move);
+      }
+    }
+    chosen=candidates[Math.floor(Math.random()*candidates.length)];
+  }
+
+  const [from,to]=chosen;
+  robot[robot.indexOf(from)]=to;
+
+  if(hasWon(robot)){
+    finish("O robô venceu! Encontrou quatro formas iguais.");
+    return;
+  }
+
+  turn="player";
+  render();
+}
+
+function finish(text){
+  gameOver=true;
+  selected=null;
+  setMessage('<span class="win">'+text+'</span>');
+  render();
+}
+
+function setMessage(text){
+  document.getElementById("message").innerHTML=text;
+}
+
+document.getElementById("newGame").addEventListener("click",newGame);
+
+/* Inicia o jogo */
+newGame();
+</script>
+</body>
+</html>
